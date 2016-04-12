@@ -88,6 +88,7 @@ static struct regulator *mhl_usb_hs_switch;
 static struct power_supply *psy;
 
 static bool aca_id_turned_on;
+static bool otg_charging;
 #ifdef CONFIG_CHARGER_SMB345
 static struct workqueue_struct *msm_otg_acok_wq;
 static struct workqueue_struct *msm_otg_id_pin_wq;
@@ -179,6 +180,8 @@ static void asus_chg_set_chg_mode(enum usb_chg_type chg_src)
 	old_chg_type = chg_type;
 }
 #endif
+
+module_param_named(usbhost_charge_mode, otg_charging, bool, 0664);
 
 static int msm_hsusb_ldo_init(struct msm_otg *motg, int init)
 {
@@ -1218,12 +1221,13 @@ static void msm_otg_notify_charger(struct msm_otg *motg, unsigned mA)
 	if (g && g->is_a_peripheral)
 		return;
 
-	if ((motg->chg_type == USB_ACA_DOCK_CHARGER ||
-		motg->chg_type == USB_ACA_A_CHARGER ||
-		motg->chg_type == USB_ACA_B_CHARGER ||
-		motg->chg_type == USB_ACA_C_CHARGER) &&
-			mA > IDEV_ACA_CHG_LIMIT)
-		mA = IDEV_ACA_CHG_LIMIT;
+	// remove charge limit (500mA) in host mode -ziddey
+	if (!otg_charging && mA > IDEV_ACA_CHG_LIMIT &&
+			(motg->chg_type == USB_ACA_DOCK_CHARGER ||
+			 motg->chg_type == USB_ACA_A_CHARGER ||
+			 motg->chg_type == USB_ACA_B_CHARGER ||
+			 motg->chg_type == USB_ACA_C_CHARGER))
+			mA = IDEV_ACA_CHG_LIMIT;
 
 	if (msm_otg_notify_chg_type(motg))
 		dev_err(motg->phy.dev,
@@ -2252,8 +2256,17 @@ static void msm_chg_detect_work(struct work_struct *w)
 				break;
 			}
 
-			if (line_state) /* DP > VLGC or/and DM > VLGC */
-				motg->chg_type = USB_PROPRIETARY_CHARGER;
+			if (line_state) /* DP > VLGC or/and DM > VLGC */ {
+				if (otg_charging) {
+					// simulate ID_A to force host mode
+					// with charging -ziddey
+					pr_info("*** FORCING USB HOST MODE W/ CHARGING ***\n");
+					set_bit(ID_A, &motg->inputs);
+					motg->chg_type = USB_ACA_A_CHARGER;
+				}
+				else
+					motg->chg_type = USB_PROPRIETARY_CHARGER;
+			}
 			else
 				motg->chg_type = USB_SDP_CHARGER;
 
@@ -2687,7 +2700,12 @@ static void msm_otg_sm_work(struct work_struct *w)
 			usleep_range(10000, 12000);
 			/* ACA: ID_A: Stop charging untill enumeration */
 			if (test_bit(ID_A, &motg->inputs))
-				msm_otg_notify_charger(motg, 0);
+				// start charging (compatibility with
+				// proprietary chargers) -ziddey
+				if (otg_charging)
+					msm_otg_notify_charger(motg, IDEV_ACA_CHG_MAX);
+				else
+					msm_otg_notify_charger(motg, 0);
 			else
 				msm_hsusb_vbus_power(motg, 1);
 			msm_otg_start_timer(motg, TA_WAIT_VRISE, A_WAIT_VRISE);
@@ -3125,8 +3143,9 @@ static void msm_otg_set_vbus_state(int online)
 	struct msm_otg *motg = the_msm_otg;
 	struct usb_otg *otg = motg->phy.otg;
 
+	// need BSV interrupt in A Host Mode to detect cable unplug -ziddey
 	/* In A Host Mode, ignore received BSV interrupts */
-	if (otg->phy->state >= OTG_STATE_A_IDLE)
+	if (!otg_charging && otg->phy->state >= OTG_STATE_A_IDLE)
 		return;
 
 	if (online) {
@@ -3135,6 +3154,13 @@ static void msm_otg_set_vbus_state(int online)
 	} else {
 		pr_debug("PMIC: BSV clear\n");
 		clear_bit(B_SESS_VLD, &motg->inputs);
+
+		// disable host mode (if enabled) -ziddey
+		if (otg_charging && test_and_clear_bit(ID_A, &motg->inputs)) {
+			pr_info("*** UNFORCING USB HOST MODE ***\n");
+			motg->chg_state = USB_CHG_STATE_UNDEFINED;
+			motg->chg_type = USB_INVALID_CHARGER;
+		}
 	}
 
 	if (!init) {
