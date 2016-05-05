@@ -5,10 +5,10 @@
 RDIR=$(pwd)
 
 # directory containing cross-compile arm toolchain
-TOOLCHAIN=$HOME/build/toolchain/arm-cortex_a15-linux-gnueabihf-linaro_4.9.4-2015.06
+TOOLCHAIN=/home/jc/build/toolchain/gcc-linaro-4.9-2016.02-x86_64_arm-linux-gnueabihf
 
 export ARCH=arm
-export CROSS_COMPILE=$TOOLCHAIN/bin/arm-eabi-
+export CROSS_COMPILE=$TOOLCHAIN/bin/arm-linux-gnueabihf-
 
 [ "$TARGET" ] || TARGET=nethunter
 [ "$DEVICE" ] || DEVICE=mako

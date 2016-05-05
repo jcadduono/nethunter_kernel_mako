@@ -3,7 +3,7 @@
 
 RDIR=$(pwd)
 
-TOOLCHAIN=/home/jc/build/toolchain/arm-cortex_a15-linux-gnueabihf-linaro_4.9.4-2015.06
+TOOLCHAIN=/home/jc/build/toolchain/gcc-linaro-4.9-2016.02-x86_64_arm-linux-gnueabihf
 
 THREADS=5
 
@@ -12,7 +12,7 @@ THREADS=5
 VERSION=$(cat $RDIR/VERSION)
 
 export ARCH=arm
-export CROSS_COMPILE=$TOOLCHAIN/bin/arm-cortex_a15-linux-gnueabihf-
+export CROSS_COMPILE=$TOOLCHAIN/bin/arm-linux-gnueabihf-
 
 cd $RDIR
 
