@@ -1,42 +1,64 @@
 #!/bin/bash
 # simple script for executing menuconfig
 
-# root directory of NetHunter mako git repo (default is this script's location)
+# root directory of mako git repo (default is this script's location)
 RDIR=$(pwd)
 
-# directory containing cross-compile arm toolchain
-TOOLCHAIN=/home/jc/build/toolchain/gcc-linaro-4.9-2016.02-x86_64_arm-linux-gnueabihf
+# directory containing cross-compile armhf toolchain
+TOOLCHAIN=$HOME/build/toolchain/gcc-linaro-4.9-2016.02-x86_64_arm-linux-gnueabihf
+
+ABORT() {
+	[ "$1" ] && echo "Error: $*"
+	exit 1
+}
 
 export ARCH=arm
 export CROSS_COMPILE=$TOOLCHAIN/bin/arm-linux-gnueabihf-
 
+[ -x "${CROSS_COMPILE}gcc" ] ||
+ABORT "Unable to find gcc cross-compiler at location: ${CROSS_COMPILE}gcc"
+
+while [ $# != 0 ]; do
+	if [ ! "$DEVICE" ]; then
+		DEVICE=$1
+	elif [ ! "$TARGET" ]; then
+		TARGET=$1
+	else
+		echo "Too many arguments!"
+		echo "Usage: ./menuconfig.sh [device] [target defconfig]"
+		ABORT
+	fi
+	shift
+done
+
+# defaults
 [ "$TARGET" ] || TARGET=nethunter
 [ "$DEVICE" ] || DEVICE=mako
-DEFCONFIG="${TARGET}_${DEVICE}_defconfig"
+
+DEFCONFIG=${TARGET}_${DEVICE}_defconfig
 DEFCONFIG_FILE=$RDIR/arch/$ARCH/configs/$DEFCONFIG
 
-[ -f "$RDIR/arch/$ARCH/configs/$DEFCONFIG" ] || {
-	echo "Config $DEFCONFIG not found in $ARCH configs!"
-	exit 1
-}
+[ -f "$DEFCONFIG_FILE" ] ||
+ABORT "Config $DEFCONFIG not found in $ARCH configs!"
 
-cd $RDIR
+cd "$RDIR" || ABORT "Failed to enter $RDIR!"
+
 echo "Cleaning build..."
 rm -rf build
 mkdir build
-make -s -i -C $RDIR O=build $DEFCONFIG menuconfig
+make -s -i -C "$RDIR" O=build "$DEFCONFIG" menuconfig
 echo "Showing differences between old config and new config"
 echo "-----------------------------------------------------"
-command -v colordiff >/dev/null 2>&1 && {
+if command -v colordiff >/dev/null 2>&1; then
 	diff -Bwu --label "old config" "$DEFCONFIG_FILE" --label "new config" build/.config | colordiff
-} || {
+else
 	diff -Bwu --label "old config" "$DEFCONFIG_FILE" --label "new config" build/.config
 	echo "-----------------------------------------------------"
 	echo "Consider installing the colordiff package to make diffs easier to read"
-}
+fi
 echo "-----------------------------------------------------"
 echo -n "Are you satisfied with these changes? Y/N: "
-read option
+read -r option
 case $option in
 y|Y)
 	cp build/.config "$DEFCONFIG_FILE"
