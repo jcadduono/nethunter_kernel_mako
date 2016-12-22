@@ -2167,6 +2167,7 @@ functions_store(struct device *pdev, struct device_attribute *attr,
 	char *name;
 	char buf[256], *b;
 	int err;
+	int hid_enabled = 0;
 
 	mutex_lock(&dev->mutex);
 
@@ -2201,19 +2202,29 @@ functions_store(struct device *pdev, struct device_attribute *attr,
 
 		while (conf_str) {
 			name = strsep(&conf_str, ",");
-			if (name) {
-				err = android_enable_function(dev, conf, name);
-				if (err)
-					pr_err("android_usb: Cannot enable %s",
-						name);
-			}
+			if (!name || !*name)
+				continue;
+
+			if (!strcmp(name, "hid"))
+				continue;
+
+			err = android_enable_function(dev, conf, name);
+			if (err)
+				pr_err("android_usb: Cannot enable '%s' (%d)",
+					name, err);
+		}
+
+		/* Always enable HID gadget function. */
+		if (!hid_enabled) {
+			name = "hid";
+			err = android_enable_function(dev, conf, name);
+			if (err)
+				pr_err("android_usb: Cannot enable '%s' (%d)",
+					name, err);
+			else
+				hid_enabled = 1;
 		}
 	}
-
-	/* HID driver always enabled, it's the whole point of this kernel patch */
-	err = android_enable_function(dev, conf, "hid");
-	if (err)
-		pr_err("android_usb: Cannot enable hid");
 
 	/* Free uneeded configurations if exists */
 	while (curr_conf->next != &dev->configs) {
